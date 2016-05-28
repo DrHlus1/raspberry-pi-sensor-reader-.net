@@ -41,16 +41,20 @@ namespace WorkingTimePercentageCalculator
             return (min <= value) && (value < max);
         }
 
+        static DateTime RemoveTime(DateTime dt)
+        {
+            return new DateTime(dt.Year, dt.Month, dt.Day);
+        }
+
         static List<DateTime> GenerateLast30DaysList()
         {
             var result = new List<DateTime>();
             // We should not include today since data for today are incomplete
-            DateTime minDate = DateTime.Now.AddDays(-30);
-            minDate = new DateTime(minDate.Year, minDate.Month, minDate.Day); // Remove time from date to improve working on recent days
-            DateTime maxDate = DateTime.Now;
+            DateTime minDate = RemoveTime(DateTime.Now.AddDays(-30));
+            DateTime maxDate = RemoveTime(DateTime.Now);
             for (var dt = minDate; dt < maxDate; dt = dt.AddDays(1))
             {
-                result.Add(new DateTime(dt.Year, dt.Month, dt.Day)); // Remove time here
+                result.Add(RemoveTime(dt)); // Remove time here
             }
             return result;
         }
@@ -67,58 +71,71 @@ namespace WorkingTimePercentageCalculator
             }
         }
 
+        static TimeSpan CalculateAverageIntervalForDay(DateTime day, ICollection<ThingSpeakFeed> dataForDay)
+        {
+            // Build a list of intervals between consequtive measurements
+            var intervals = Pairs(dataForDay)
+                .Select(pair => pair.Second.CreatedAt.Value - pair.First.CreatedAt.Value)
+                // Filter out all intervals smaller or equal to 10 seconds
+                .Where(diff => diff > TimeSpan.FromSeconds(10));
+
+            Double averageIntervalInSeconds = intervals
+                .Select(interval => interval.TotalSeconds)
+                .Average();
+            return TimeSpan.FromSeconds(averageIntervalInSeconds);
+        }
+
+        static TimeSpan GetManualIntervalForDay(DateTime day)
+        {
+            // Starting from April 20, 2016 I have 3 minute inverval. Before that, it was 1 minute.
+            DateTime april20 = new DateTime(2016, 4, 20);
+            if (day < april20)
+            {
+                return TimeSpan.FromMinutes(1);
+            }
+            else
+            {
+                return TimeSpan.FromMinutes(3);
+            }
+        }
+
         static void Main(string[] args)
         {
             var thingSpeakConnection = new ThingSpeakClient(sslRequired: true);
             Int32 channelId = 108891;
-            // Step 1: retrieve data for last 30 days
-            // TODO we need measurements for only last 30 days. Stop downloading all of them
-            // TODO include other fields when data are available for them
-            ThingSpeakData data = thingSpeakConnection.ReadFieldsAsync(String.Empty, channelId, 1).Result;
 
             List<DateTime> last_30days = GenerateLast30DaysList();
-            var dataForLast30Days = data.Feeds.Where(feed => DateTimeInRange(
-                feed.CreatedAt.Value, last_30days.First(), last_30days.Last()));
-            
-            
+
+            // Unfortunately, ThingSpeak limits amount of data in one request to 8000, so we can't get all data in one huge request,
+            // so we have to get data for each day in separate request (however, they can be parallelized)
+
+            //TODO: parallelize calculation for different days
             for (var dt = last_30days.First(); dt < last_30days.Last(); dt = dt.AddDays(1))
             {
-                // Step 2: find average interval between measurements
-                TimeSpan averageInterval = TimeSpan.Zero;
-
-                var dataForDay = dataForLast30Days.Where(feed => DateTimeInRange(
-                    feed.CreatedAt.Value, dt, dt.AddDays(1)));
+                // Step 1: retrieve data
+                // TODO include other fields when data are available for them
+                ThingSpeakData allDataForDay = thingSpeakConnection.ReadFieldsAsync(
+                    String.Empty, channelId, fieldId: 1, start_date: dt, end_date: dt.AddDays(1)).Result;
+                var dataForDay = allDataForDay.Feeds;
 
                 Console.WriteLine("Retrieved {0} feeds for day {1}.", dataForDay.Count(), dt.ToString());
 
-                if (dataForDay.Count() < 5)
+                Double workingTimeInPercents = 0.0;
+                if (dataForDay.Count() >= 5)
                 {
-                    continue;
+                    // We have enough data to calculate interval
+                    // Step 2: find average interval between measurements
+                    TimeSpan interval = GetManualIntervalForDay(dt);
+                    Console.WriteLine("Found interval for day {0}, it is {1} minutes", dt.ToString(), interval.TotalMinutes);
+
+                    Double intervalInSeconds = interval.TotalSeconds;
+                    workingTimeInPercents = (dataForDay.Count() * intervalInSeconds / TimeSpan.FromDays(1).TotalSeconds) * 100.0;
                 }
-                // We have enough data to calculate interval
 
-                // Build a list of intervals between consequtive measurements
-                var intervals = Pairs(dataForDay)
-                    .Select(pair => pair.Second.CreatedAt.Value - pair.First.CreatedAt.Value)
-                    // Filter all intervals smaller than 1 minute and larger than 10 minutes
-                    .Where(diff => TimeSpanInRange(diff, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(10)));
-                Int32 interval_count = intervals.Count();
-                Double averageIntervalInMinutes = intervals.Aggregate<TimeSpan, Double>(
-                    0.0,
-                    (average, interval) => (average + interval.TotalMinutes / interval_count));
-                averageInterval = TimeSpan.FromMinutes(averageIntervalInMinutes);
-                Console.WriteLine("Found average interval for day {0}, interval is {1} minutes", dt.ToString(), averageInterval.TotalMinutes);
-
-                Double workingTimeInPercents = (dataForDay.Count() * averageIntervalInMinutes / TimeSpan.FromDays(1).TotalMinutes) * 100.0;
-                Console.WriteLine("Working time percentage for day {0} is {1} %", dt.ToString(), workingTimeInPercents);
+                Int32 roundedWorkingTimeInPercents = (Int32)Math.Round(workingTimeInPercents);
+                Console.WriteLine("Working time percentage for day {0} is {1} %", dt.ToString(), roundedWorkingTimeInPercents);
             }
 
-            /*
-            foreach (var feed in dataForLast30Days)
-            {
-                Console.WriteLine(JsonConvert.SerializeObject(feed));
-            }
-             * */
             Console.WriteLine("================================ Application finished. Press any key to exit =============================");
             Console.ReadKey(true);
         }
