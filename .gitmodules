@@ -1,0 +1,3 @@
+[submodule "thingspeak-.net-library"]
+	path = thingspeak-.net-library
+	url = https://github.com/DrHlus1/thingspeak-.net-library.git
