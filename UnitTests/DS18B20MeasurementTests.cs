@@ -84,7 +84,7 @@ namespace UnitTests
             var sensor = new SensorDS18B20("28-0000055f311a");
             DateTime timestamp = DateTime.Now;
             String file_contents = "00 00 00 00 00 00 00 00 00 : crc=00 YES" + Environment.NewLine +
-                                   "00 00 00 00 00 00 00 00 00 t=0";
+                                   "00 00 00 00 00 00 00 00 00 t=0" + Environment.NewLine;
             Assert.That(() => new DS18B20Measurement(sensor: sensor, measurement: file_contents, timestamp: timestamp), Throws.TypeOf<FormatException>());
         }
     }

@@ -80,6 +80,6 @@ namespace meteostation
         // Measurement like this is possible to happen in case of errors, but it is never legal
         private String forbiddenMeasurement = 
             "00 00 00 00 00 00 00 00 00 : crc=00 YES" + Environment.NewLine +
-            "00 00 00 00 00 00 00 00 00 t=0";
+            "00 00 00 00 00 00 00 00 00 t=0" + Environment.NewLine;
     }
 }
