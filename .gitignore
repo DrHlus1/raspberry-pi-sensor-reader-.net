@@ -234,6 +234,3 @@ _Pvt_Extensions
 
 # FAKE - F# Make
 .fake/
-
-# Avoid ThingSpeak library (it is stored in a separate repository)
-thingspeak-.net-library
